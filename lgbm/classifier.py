@@ -6,6 +6,8 @@ import gc
 print('Loading data ...')
 
 train = pd.read_csv('../data/train_2016_v2.csv')
+train['transactiondate'] = train['transactiondate'].str[5:7].astype(int)
+
 prop = pd.read_csv('../data/properties_2016.csv')
 
 for c, dtype in zip(prop.columns, prop.dtypes):	
@@ -14,7 +16,7 @@ for c, dtype in zip(prop.columns, prop.dtypes):
 
 df_train = train.merge(prop, how='left', on='parcelid')
 
-x_train = df_train.drop(['parcelid', 'logerror', 'transactiondate', 'propertyzoningdesc', 'propertycountylandusecode'], axis=1)
+x_train = df_train.drop(['parcelid', 'logerror', 'propertyzoningdesc', 'propertycountylandusecode'], axis=1)
 y_train = df_train['logerror'].values
 print(x_train.shape, y_train.shape)
 
@@ -52,24 +54,26 @@ del x_train, x_valid; gc.collect()
 print("Prepare for the prediction ...")
 sample = pd.read_csv('../data/sample_submission.csv')
 sample['parcelid'] = sample['ParcelId']
+sample = sample.drop(['ParcelId'], axis=1)
 df_test = sample.merge(prop, on='parcelid', how='left')
-del sample, prop; gc.collect()
-x_test = df_test[train_columns]
+del prop; gc.collect()
+x_test = df_test.copy(deep=True)
+for c in df_test.dtypes[df_test.dtypes == object].index.values:
+    x_test[c] = (df_test[c] == True)
 del df_test; gc.collect()
+x_test = x_test.drop(sample.columns, axis=1)
 for c in x_test.dtypes[x_test.dtypes == object].index.values:
     x_test[c] = (x_test[c] == True)
-x_test = x_test.values.astype(np.float32, copy=False)
+#x_test = x_test.values.astype(np.float32, copy=False)
 
 print("Start prediction ...")
-# num_threads > 1 will predict very slow in kernal
-clf.reset_parameter({"num_threads":1})
-p_test = clf.predict(x_test)
+sub = pd.read_csv('../data/sample_submission.csv')
+
+for c in sample.columns[sample.columns != 'parcelid']:
+    x_test = x_test.assign(transactiondate=int(c[4:]) if c[3] == '6' else int(c[4:])+12)
+    p_test = clf.predict(x_test.values.astype(np.float32, copy=True))
+    sub[c] = p_test
 
 del x_test; gc.collect()
 
-print("Start write result ...")
-#sub = pd.read_csv('../data/sample_submission.csv')
-#for c in sub.columns[sub.columns != 'ParcelId']:
-#    sub[c] = p_test
-
-#sub.to_csv('lgb_starter.csv', index=False, float_format='%.4f')
+sub.to_csv('dated_lgb.csv', index=False, float_format='%.4f')
